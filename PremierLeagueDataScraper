@@ -1,0 +1,235 @@
+import requests,random,bs4,time,sqlite3,marshal, re
+from selenium import webdriver
+from datetime import datetime
+
+browser = webdriver.Firefox()
+
+conn = sqlite3.connect("E:\Python 3.5\Documents\PremierLeagueApi\database.db")
+
+
+matchId = "14167"
+
+
+def getMatchStats(matchId):
+    
+    global clubs
+    
+    matchStats = {}
+    
+    browser.get("https://www.premierleague.com/match/" + matchId)
+
+    #time.sleep(1)
+    
+    ##Locate and click the match stats tab
+    elems = browser.find_elements_by_css_selector(".matchNav > .tabs > .tablist > li")
+    ##time.sleep(1)
+    elems[2].click()
+    time.sleep(1)
+    ##elems[2].click()
+    
+    ##time.sleep(1)
+
+    matchDate = browser.find_elements_by_css_selector("#mainContent > div > section > .centralContent > section > div > div > div  > .matchDate")
+
+    kickoff = int(matchDate[0].get_attribute("data-kickoff"))
+
+    print(kickoff)
+
+    if datetime.fromtimestamp(kickoff/1000.0) > datetime.now():
+
+        return
+        
+    
+    ##Locate statistics table and fetch the data
+    teams = browser.find_elements_by_css_selector(".mcTabs > .mcMainTab > .mcTabs > .statsSection > table > thead > tr > th")
+    dataTable = browser.find_elements_by_css_selector(".mcTabs > .mcMainTab > .mcTabs > .mcStatsTab > table > tbody > tr > td")
+    goals = browser.find_elements_by_css_selector(".scoreboxContainer > div > div > .teamsContainer > .matchScoreContainer > div > div")
+
+    print(dataTable[0].text)
+    
+    for j in range(0,len(dataTable),3):
+
+        if j+3 > len(dataTable):
+            break
+
+        ##Add stats using tables names and data
+        matchStats["home"+dataTable[j + 1].text.replace(" ", "").replace("%", "")] = dataTable[j].text
+        matchStats["away"+dataTable[j + 1].text.replace(" ", "").replace("%", "")] = dataTable[j + 2].text
+
+        print(j)
+
+    team1 = teams[0].text
+    team2 = teams[2].text
+    
+    homeEvents = browser.find_elements_by_css_selector(".centralContent > section > .scoreboxContainer >div > div > .timeLine > .eventLine > .home > .icn")
+    awayEvents = browser.find_elements_by_css_selector(".centralContent > section > .scoreboxContainer >div > div > .timeLine > .eventLine > .away > .icn")
+
+    homeEventInfos = browser.find_elements_by_css_selector(".centralContent > section > .scoreboxContainer >div > div > .timeLine > .eventLine > .home > div > div > div > div > a ")
+    awayEventInfos = browser.find_elements_by_css_selector(".centralContent > section > .scoreboxContainer >div > div > .timeLine > .eventLine > .away > div > div > div > div > a ")
+
+    elems[1].click()
+    teamFormations = browser.find_elements_by_css_selector(".mcTabs > section > .wrapper > div > div > div > header > div > .matchTeamFormation ")
+    homePlayers = browser.find_elements_by_css_selector(".mcTabs > section > .wrapper > div > .homeLineup > div > .matchLineupTeamContainer > ul > li > a")
+    awayPlayers = browser.find_elements_by_css_selector(".mcTabs > section > .wrapper > div > .awayLineup > div > .matchLineupTeamContainer > ul > li > a")
+
+
+    team1Stats = {}
+    team2Stats = {}
+
+    ##matchStats = {}
+
+    matchStats["matchId"] = matchId
+    matchStats["homeTeam"] = team1
+    matchStats["awayTeam"] = team2
+
+    print(team1, team2)
+    ##print(clubs)
+    
+    if (team1 in clubs) and (team2 in clubs):
+        
+        matchStats["homeTeamId"] = clubs[team1]
+        matchStats["awayTeamId"] = clubs[team2]
+    else:
+
+        print("what")
+        return
+    
+    matchStats["homeGoals"] = goals[0].text[0]
+    matchStats["awayGoals"] = goals[0].text[2]
+
+    if (int(matchStats["homeGoals"]) > int(matchStats["awayGoals"])):
+        
+        matchStats["winnerId"] = matchStats["homeTeamId"]
+        
+    elif int(matchStats["homeGoals"]) < int(matchStats["awayGoals"]):
+
+        matchStats["winnerId"] = matchStats["awayTeamId"]
+    else:
+
+        matchStats["winnerId"] = 0
+
+    matchStats["homeYellows"] = 0
+    matchStats["homeReds"] = 0
+    matchStats["awayYellows"] = 0
+    matchStats["awayReds"] = 0
+
+    matchStats["homeSystem"] = teamFormations[0].text
+    matchStats["awaySystem"] = teamFormations[1].text
+
+    matchStats["homePlayed"] = []
+    matchStats["awayPlayed"] = []
+    
+    matchStats["homeScorers"] = []
+    matchStats["awayScorers"] = []
+
+    matchStats["matchDate"] = matchDate[0].text
+    
+    for i in range(len(homeEvents)):
+
+        event = homeEvents[i].get_attribute("class").split(" ")[1]
+
+        if (event == "card-yellow"):
+
+            matchStats["homeYellows"] += 1
+
+        if (event == "card-red"):
+
+            matchStats["homeReds"] += 1
+
+        if event == "ball-sm-w":
+
+            matchStats["homeScorers"].append(re.search("\d+",homeEventInfos[i].get_attribute("href")).group())
+
+    for k in range(len(awayEvents)):
+
+        event = awayEvents[i].get_attribute("class").split(" ")[1]
+
+        if (event == "card-yellow"):
+
+            matchStats["awayYellows"] += 1
+
+        if (event == "card-red"):
+
+            matchStats["awayReds"] += 1
+
+        if event == "ball-sm-w":
+
+            matchStats["awayScorers"].append(re.search("\d+",awayEventInfos[k].get_attribute("href")).group())
+
+
+    for n in range(11):
+
+        matchStats["homePlayed"].append(re.search("\d+", homePlayers[n].get_attribute("href")).group())
+        matchStats["awayPlayed"].append(re.search("\d+", awayPlayers[n].get_attribute("href")).group())
+        
+        
+    print(matchStats)
+        
+    ##Match cards, scorers, team players and system under work still
+    conn.execute("INSERT INTO MATCHES (matchId, matchDate, homeTeam,awayTeam,homeTeamId,awayTeamId, \
+                 homeGoals,awayGoals,winnerId, homePossession,awayPossession, homeShotsOnTarget, \
+                 awayShotsOnTarget,homeShots,awayShots,homeTouches,awayTouches,homePasses, \
+                 awayPasses, homeTackles, awayTackles,homeClearances,awayClearances,homeCorners,\
+               awayCorners, homeOffsides, awayOffsides,homeScorers,awayScorers,homeYellows, \
+               awayYellows, homeReds, awayReds,homePlayed, awayPlayed, homeSystem,awaySystem) values \
+               (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (matchStats["matchId"], matchStats["matchDate"], matchStats["homeTeam"],matchStats["awayTeam"],matchStats["homeTeamId"],
+                 matchStats["awayTeamId"],matchStats["homeGoals"],matchStats["awayGoals"],matchStats["winnerId"],
+                 float(matchStats["homePossession"]),float(matchStats["awayPossession"]), matchStats["homeShotsOnTarget"],
+                 matchStats["awayShotsOnTarget"],matchStats["homeShots"],matchStats["awayShots"],matchStats["homeTouches"],
+                 matchStats["awayTouches"],matchStats["homePasses"],matchStats["awayPasses"], matchStats["homeTackles"],
+                 matchStats["awayTackles"],matchStats["homeClearances"],matchStats["awayClearances"],matchStats["homeCorners"],
+                 matchStats["awayCorners"], matchStats["homeOffsides"], matchStats["awayOffsides"],marshal.dumps(matchStats["homeScorers"]),
+                 marshal.dumps(matchStats["awayScorers"]),matchStats["homeYellows"], matchStats["awayYellows"], matchStats["homeReds"],
+                 matchStats["awayReds"],marshal.dumps(matchStats["homePlayed"]), marshal.dumps(matchStats["awayPlayed"]), matchStats["homeSystem"],
+                 matchStats["awaySystem"]))
+
+    conn.commit()
+    
+    ##conn.execute("SELECT ")
+        
+    print("done")
+
+
+def getTeamPlayers(teamId):
+
+    browser.get("https://www.premierleague.com/clubs/" + teamId + "/x/squad?se=54")
+
+    time.sleep(1)
+    elems = browser.find_elements_by_css_selector(".wrapper > div > ul > li > a")
+
+    clubPlayerIds = []
+    
+    for i in range(len(elems)):
+        
+        link = elems[i].get_attribute("href")
+        print(link)
+        playerId = re.search("\d+", link)
+
+        if playerId != None:
+            playerId = playerId.group()
+
+            clubPlayerIds.append(playerId)
+
+    print(clubPlayerIds, teamId)
+    
+    arrayString = marshal.dumps(clubPlayerIds)
+
+    conn.execute("UPDATE TEAMS SET Players = ? WHERE id = ?", (arrayString, teamId,))
+
+    
+
+clubIds = ['1', '127', '43', '4', '6', '7', '41', '26', '10', '11', '12', '13', '20', '42', '29', '45', '21', '33', '36', '25']
+clubs = {'Middlesbrough': '13', 'Manchester United': '12', 'Southampton': '20', 'Bournemouth': '127',
+         'Crystal Palace': '6', 'Liverpool': '10', 'Watford': '33', 'Sunderland': '29', 'Burnley': '43',
+         'Tottenham Hotspur': '21', 'Manchester City': '11', 'Hull City': '41', 'Chelsea': '4', 'Arsenal': '1',
+         'Leicester City': '26', 'Everton': '7', 'Swansea City': '45', 'West Ham United': '25',
+         'West Bromwich Albion': '36', 'Stoke City': '42'}
+
+matchId = "14166"
+
+##getMatchStats(matchId)
+
+for i in range(14051,14179):
+    print(i)
+    getMatchStats(str(i))
